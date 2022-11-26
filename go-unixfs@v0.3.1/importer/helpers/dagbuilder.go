@@ -222,6 +222,24 @@ func (db *DagBuilderHelper) NewLeafDataNode(fsNodeType pb.Data_DataType) (node i
 	return node, dataSize, nil
 }
 
+func (db *DagBuilderHelper) NewLeafDataNode_mansub(fileData []byte, fsNodeType pb.Data_DataType) (node ipld.Node, dataSize uint64, err error) {
+	// debug.PrintStack()
+
+	dataSize = uint64(len(fileData))
+
+	// Create a new leaf node containing the file chunk data.
+	node, err = db.NewLeafNode(fileData, fsNodeType)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Convert this leaf to a `FilestoreNode` if needed.
+	node = db.ProcessFileStore(node, dataSize)
+
+	return node, dataSize, nil
+}
+
 // ProcessFileStore generates, if Filestore is being used, the
 // `FilestoreNode` representation of the `ipld.Node` that
 // contains the file data. If Filestore is not being used just
@@ -335,6 +353,21 @@ func (n *FSNodeOverDag) AddChild(child ipld.Node, fileSize uint64, db *DagBuilde
 	n.file.AddBlockSize(fileSize)
 
 	return db.Add(child)
+}
+
+func (n *FSNodeOverDag) AddChild_mansub(child ipld.Node, fileSize uint64, db *DagBuilderHelper, level int) error {
+	err := n.dag.AddNodeLink("", child) //여기가 오래 걸림!!
+	if err != nil {
+		return err
+	}
+
+	n.file.AddBlockSize(fileSize)
+	if level >= 2 {
+		err = db.Add(child)
+	}
+
+	return err
+	// return nil
 }
 
 // RemoveChild deletes the child node at the given index.

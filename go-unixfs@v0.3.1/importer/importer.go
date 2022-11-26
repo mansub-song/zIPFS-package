@@ -22,7 +22,7 @@ func BuildDagFromReader(ds ipld.DAGService, spl chunker.Splitter) (ipld.Node, er
 	if err != nil {
 		return nil, err
 	}
-	return bal.Layout(db)
+	return bal.Layout(db, "")
 }
 
 // BuildTrickleDagFromReader creates a DAG given a DAGService and a Splitter

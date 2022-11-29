@@ -52,7 +52,7 @@ package balanced
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -64,7 +64,6 @@ import (
 
 	cid "github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
-	dshelp "github.com/ipfs/go-ipfs-ds-help"
 	ipld "github.com/ipfs/go-ipld-format"
 	ihelper "github.com/ipfs/go-unixfs/importer/helpers"
 )
@@ -72,6 +71,7 @@ import (
 var fillNodeRec_Count = 0
 var ChunkSize int64 = 1024 * 256
 var ChildLinkCount = 174
+var NumThread = 32
 
 func encode(key datastore.Key) (dir, file string) {
 	extension := ".data"
@@ -261,69 +261,148 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 		// }
 		// fmt.Println("depthNodeCount len:", len(depthNodeCount))
 
-		wg := sync.WaitGroup{}
+		// wg := sync.WaitGroup{}
+
 		leafNode := make([]ipld.Node, depthNodeCount[0])
 		leafFileSize := make([]uint64, depthNodeCount[0])
 
 		newFileLeaf = make([]cid.Cid, depthNodeCount[0])
 
-		st_3 := time.Now()
-		fileData, err := ioutil.ReadFile(fileAbsPath)
-		elap_3 := time.Since(st_3)
-		fileDataSize := len(fileData)
-		if err != nil {
-			log.Fatal("os open fail!_2 -", ":", err)
-		}
-		fmt.Println("file read time:", elap_3)
+		var numTh int
 
-		for i := 0; i < depthNodeCount[0]; i++ { //depthNodeCount[0] == leaf node level
+		size := depthNodeCount[0] / (NumThread - 1)
+		if size == 0 || size == 1 {
+			numTh = depthNodeCount[0]
+		} else {
+			numTh = depthNodeCount[0] / size
+			if depthNodeCount[0]%size != 0 {
+				numTh = numTh + 1
+			}
+		}
+		fmt.Println("numTh:", numTh, "depthNodeCount[0]:", depthNodeCount[0], "size:", size)
+		var wg sync.WaitGroup
+
+		for i := 0; i < numTh; i++ {
 			wg.Add(1)
+
 			go func(i int) {
 				defer wg.Done()
-				start := int64(i) * ChunkSize
-				end := int64(i+1) * ChunkSize
-				if end >= int64(fileDataSize) {
-					end = int64(fileDataSize)
-				}
-				leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(fileData[start:end], ft.TFile)
+				f, err := os.Open(fileAbsPath)
 				if err != nil {
-					log.Fatal("mssong: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode(ft.TFile, fileCidIdx)")
+					panic(err)
 				}
-
-				newFileLeaf[i] = leafNode[i].Cid()
-
-				//////////////// case 1. 직접 file create하기!
-				dsKey := dshelp.MultihashToDsKey(newFileLeaf[i].Hash())
-				// fmt.Println("dsKey:", dsKey.String())
-				dir, filePath := encode(dsKey)
-				mutex := sync.Mutex{}
-				mutex2 := sync.Mutex{}
-
-				mutex.Lock()
-				if _, err := os.Stat(dir); os.IsNotExist(err) {
-					os.Mkdir(dir, os.ModePerm)
+				offset := int64(i) * int64(size) * ChunkSize
+				f.Seek(offset, 0)
+				full := make([]byte, int64(size)*ChunkSize)
+				n, err := io.ReadFull(f, full)
+				if err == io.ErrUnexpectedEOF {
+					small := make([]byte, n)
+					copy(small, full)
+					full = small
 				}
-				mutex.Unlock()
-
-				mutex2.Lock()
-				if _, err := os.Stat(filePath); os.IsNotExist(err) {
-					f, err := os.Create(filePath)
+				idx := i * size
+				fileDataSize := len(full)
+				count := fileDataSize / int(ChunkSize)
+				if count == 0 {
+					var err error
+					leafNode[idx], leafFileSize[idx], err = db.NewLeafDataNode_mansub(full, ft.TFile)
+					if err != nil {
+						log.Fatal("mssong: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(ft.TFile, fileCidIdx)")
+					}
+					newFileLeaf[idx] = leafNode[idx].Cid()
+					err = db.Add(leafNode[idx])
 					if err != nil {
 						panic(err)
 					}
-					f.Write(leafNode[i].RawData())
+				} else {
+					if fileDataSize%int(ChunkSize) != 0 {
+						count = count + 1
+					}
+
+					for j := 0; j < count; j++ {
+						start := j * int(ChunkSize)
+						end := (j + 1) * int(ChunkSize)
+						if end >= fileDataSize {
+							end = fileDataSize
+						}
+						var err error
+						leafNode[idx+j], leafFileSize[idx+j], err = db.NewLeafDataNode_mansub(full[start:end], ft.TFile)
+						if err != nil {
+							log.Fatal("mssong: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(ft.TFile, fileCidIdx)")
+						}
+						newFileLeaf[idx+j] = leafNode[idx+j].Cid()
+						err = db.Add(leafNode[idx+j])
+						if err != nil {
+							panic(err)
+						}
+					}
 				}
-				mutex2.Unlock()
-
-				////////////////case 2. db.Add로 datastore에 데이터 저장하기
-
-				// err = db.Add(leafNode[i])
-				// if err != nil {
-				// 	log.Fatal("mssong: err = db.Add(leafNode[i])")
-				// }
 
 			}(i)
 		}
+		wg.Wait()
+
+		fmt.Printf("leafNode:%#v\n", leafNode)
+		fmt.Printf("leafFileSize:%#v\n", leafFileSize)
+		fmt.Printf("newFileLeaf:%#v\n", newFileLeaf)
+
+		// st_3 := time.Now()
+		// fileData, err := ioutil.ReadFile(fileAbsPath)
+		// elap_3 := time.Since(st_3)
+		// fileDataSize := len(fileData)
+		// if err != nil {
+		// 	log.Fatal("os open fail!_2 -", ":", err)
+		// }
+		// fmt.Println("file read time:", elap_3)
+
+		// for i := 0; i < depthNodeCount[0]; i++ { //depthNodeCount[0] == leaf node level
+		// 	wg.Add(1)
+		// 	go func(i int) {
+		// 		defer wg.Done()
+		// 		start := int64(i) * ChunkSize
+		// 		end := int64(i+1) * ChunkSize
+		// 		if end >= int64(fileDataSize) {
+		// 			end = int64(fileDataSize)
+		// 		}
+		// 		leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(fileData[start:end], ft.TFile)
+		// 		if err != nil {
+		// 			log.Fatal("mssong: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode(ft.TFile, fileCidIdx)")
+		// 		}
+
+		// 		newFileLeaf[i] = leafNode[i].Cid()
+
+		// 		//////////////// case 1. 직접 file create하기!
+		// 		dsKey := dshelp.MultihashToDsKey(newFileLeaf[i].Hash())
+		// 		// fmt.Println("dsKey:", dsKey.String())
+		// 		dir, filePath := encode(dsKey)
+		// 		mutex := sync.Mutex{}
+		// 		mutex2 := sync.Mutex{}
+
+		// 		mutex.Lock()
+		// 		if _, err := os.Stat(dir); os.IsNotExist(err) {
+		// 			os.Mkdir(dir, os.ModePerm)
+		// 		}
+		// 		mutex.Unlock()
+
+		// 		mutex2.Lock()
+		// 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// 			f, err := os.Create(filePath)
+		// 			if err != nil {
+		// 				panic(err)
+		// 			}
+		// 			f.Write(leafNode[i].RawData())
+		// 		}
+		// 		mutex2.Unlock()
+
+		// 		////////////////case 2. db.Add로 datastore에 데이터 저장하기
+
+		// 		// err = db.Add(leafNode[i])
+		// 		// if err != nil {
+		// 		// 	log.Fatal("mssong: err = db.Add(leafNode[i])")
+		// 		// }
+
+		// 	}(i)
+		// }
 		//////////////////////////////////////////////////////////////////////// 각 file open해서 256K만큼 read하기
 		/*
 			for i := 0; i < depthNodeCount[0]; i++ { //depthNodeCount[0] == leaf node level
@@ -365,7 +444,7 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 				// }
 			}
 		*/
-		wg.Wait()
+		// wg.Wait()
 
 		newFileNonLeaf := make([]cid.Cid, 0)
 		root, _, err = makeDAG(db, 1, depthNodeCount, leafNode, leafFileSize, depthNodeCount[0]-1, &newFileNonLeaf)
@@ -381,6 +460,7 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 		// merkledag.PinBufferMutex.UnLock()
 
 		// merkledag.PrintPinBuffer(root.Cid())
+		fmt.Println("root CID:", root.Cid())
 		return root, db.Add(root)
 		// panic("good game")
 	} else {
@@ -422,7 +502,7 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 				return nil, err
 			}
 		}
-
+		fmt.Println("root CID:", root.Cid())
 		return root, db.Add(root)
 	}
 

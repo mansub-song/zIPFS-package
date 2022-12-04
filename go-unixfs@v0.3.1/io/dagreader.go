@@ -4,11 +4,21 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
 
+	proto "github.com/gogo/protobuf/proto"
+	"github.com/ipfs/go-datastore"
+	dshelp "github.com/ipfs/go-ipfs-ds-help"
 	ipld "github.com/ipfs/go-ipld-format"
-	mdag "github.com/ipfs/go-merkledag"
+	merkledag "github.com/ipfs/go-merkledag"
 	unixfs "github.com/ipfs/go-unixfs"
+	pb "github.com/ipfs/go-unixfs/pb"
 )
 
 // Common errors
@@ -46,10 +56,10 @@ func NewDagReader(ctx context.Context, n ipld.Node, serv ipld.NodeGetter) (DagRe
 	var size uint64
 
 	switch n := n.(type) {
-	case *mdag.RawNode:
+	case *merkledag.RawNode:
 		size = uint64(len(n.RawData()))
 
-	case *mdag.ProtoNode:
+	case *merkledag.ProtoNode:
 		fsNode, err := unixfs.FSNodeFromBytes(n.Data())
 		if err != nil {
 			return nil, err
@@ -72,9 +82,9 @@ func NewDagReader(ctx context.Context, n ipld.Node, serv ipld.NodeGetter) (DagRe
 				return nil, err
 			}
 
-			childpb, ok := child.(*mdag.ProtoNode)
+			childpb, ok := child.(*merkledag.ProtoNode)
 			if !ok {
-				return nil, mdag.ErrNotProtobuf
+				return nil, merkledag.ErrNotProtobuf
 			}
 			return NewDagReader(ctx, childpb, serv)
 		case unixfs.TSymlink:
@@ -270,6 +280,79 @@ func (dr *dagReader) writeNodeDataBuffer(w io.Writer) (int64, error) {
 	return n, nil
 }
 
+///////////////////////////////////// wrriten by mssong
+func encode(key datastore.Key) (file string) {
+	extension := ".data"
+	noslash := key.String()[1:]
+	datastorePath := "/home/mssong/.ipfs/blocks"
+
+	dir := filepath.Join(datastorePath, noslash[len(noslash)-3:len(noslash)-1])
+	file = filepath.Join(dir, noslash+extension)
+	return file
+}
+
+// UnwrapData unmarshals a protobuf messages and returns the contents.
+func UnwrapData(data []byte) ([]byte, error) {
+	pbdata := new(pb.Data)
+	err := proto.Unmarshal(data, pbdata)
+	if err != nil {
+		return nil, err
+	}
+	return pbdata.GetData(), nil
+}
+
+func createFile(f *os.File, tc *merkledag.TierCid) (size int64, err error) {
+	wg := sync.WaitGroup{}
+	rawData := make([][]byte, len(tc.Leaf))
+	// ff, err := os.Create("/home/mssong/zzzzzzz")
+	for i := 0; i < len(tc.Leaf); i++ {
+		wg.Add(1)
+		go func(i int) {
+
+			defer wg.Done()
+			leafCid := tc.Leaf[i]
+			dsKey := dshelp.MultihashToDsKey(leafCid.Hash())
+			// fmt.Println("dsKey:", dsKey.String())
+			filePath := encode(dsKey)
+			// fmt.Println("filePath:", filePath)
+			dat, err := ioutil.ReadFile(filePath)
+			if err != nil {
+				panic(err)
+			}
+
+			node, err := merkledag.DecodeProtobuf(dat)
+			if err != nil {
+				panic(err)
+			}
+
+			rawData[i], err = UnwrapData(node.Data())
+
+			if err != nil {
+				panic(err)
+			}
+
+		}(i)
+
+	}
+	wg.Wait()
+
+	st_1 := time.Now()
+	for i := 0; i < len(rawData); i++ {
+
+		f.Write(rawData[i])
+	}
+	elap_1 := time.Since(st_1)
+	fmt.Println("elap_1:", elap_1)
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		panic(err)
+	}
+	return fileInfo.Size(), nil
+}
+
+///////////////////////////////////// wrriten by mssong
+
 // WriteTo writes to the given writer.
 // This follows the `bytes.Reader.WriteTo` implementation
 // where it starts from the internal index that may have
@@ -278,8 +361,10 @@ func (dr *dagReader) writeNodeDataBuffer(w io.Writer) (int64, error) {
 // TODO: This implementation is very similar to `CtxReadFull`,
 // the common parts should be abstracted away.
 func (dr *dagReader) WriteTo(w io.Writer) (n int64, err error) {
+	fmt.Printf("WriteTo\n") //here
 	// Use the internal reader's context to fetch the child node promises
 	// (see `ipld.NavigableIPLDNode.FetchChild` for details).
+
 	dr.dagWalker.SetContext(dr.ctx)
 
 	// If there was a partially read buffer from the last visited
@@ -291,40 +376,88 @@ func (dr *dagReader) WriteTo(w io.Writer) (n int64, err error) {
 		}
 	}
 
-	// Iterate the DAG calling the passed `Visitor` function on every node
-	// to read its data into the `out` buffer, stop if there is an error or
-	// if the entire DAG is traversed (`EndOfDag`).
-	err = dr.dagWalker.Iterate(func(visitedNode ipld.NavigableNode) error {
-		node := ipld.ExtractIPLDNode(visitedNode)
+	st := time.Now()
+	tc_Pin, exist_Pin := merkledag.PinBuffer[dr.rootNode.Cid()]
+	tc_UnPin, exist_Unpin := merkledag.UnPinBuffer[dr.rootNode.Cid()]
 
-		// Skip internal nodes, they shouldn't have any file data
-		// (see the `balanced` package for more details).
-		if len(node.Links()) > 0 {
-			return nil
-		}
+	tc_Pin = tc_Pin
+	tc_UnPin = tc_UnPin
 
-		err = dr.saveNodeData(node)
-		if err != nil {
-			return err
-		}
-		// Save the leaf node file data in a buffer in case it is only
-		// partially read now and future `CtxReadFull` calls reclaim the
-		// rest (as each node is visited only once during `Iterate`).
-
-		written, err := dr.writeNodeDataBuffer(w)
-		n += written
-		if err != nil {
-			return err
-		}
-
-		return nil
-	})
-
-	if err == ipld.EndOfDag {
-		return n, nil
+	f, err := os.Create("/home/mssong/ipfsGetData")
+	if err != nil {
+		panic(err)
 	}
+	defer f.Close()
 
+	if exist_Pin {
+		fmt.Println("exist pin!")
+
+		n, err = createFile(f, tc_Pin)
+	} else if exist_Unpin {
+		fmt.Println("exist unpin!")
+
+		n, err = createFile(f, tc_UnPin)
+	} else {
+		dagCid := merkledag.NewTierCid()
+		//////////////////////////////////////////////////////////////////////////////////////////////////
+
+		// Iterate the DAG calling the passed `Visitor` function on every node
+		// to read its data into the `out` buffer, stop if there is an error or
+		// if the entire DAG is traversed (`EndOfDag`).
+		err = dr.dagWalker.Iterate(func(visitedNode ipld.NavigableNode) error {
+			// debug.PrintStack()
+			node := ipld.ExtractIPLDNode(visitedNode)
+			// fmt.Printf("%v: Iterate node cid:%s\n", time.Now(), node.Cid())
+			// time.Sleep(3 * time.Second)
+			// fmt.Println("nodes:%#v", node)
+			// Skip internal nodes, they shouldn't have any file data
+			// (see the `balanced` package for more details).
+			if len(node.Links()) > 0 {
+				// fmt.Println("rootNode.Cid():", dr.rootNode.Cid())
+				dagCid.NonLeaf = append(dagCid.NonLeaf, node.Cid())
+				return nil
+			}
+
+			dagCid.Leaf = append(dagCid.Leaf, node.Cid())
+
+			// fmt.Println("Iterate node Cid:", node.Cid())
+			// fmt.Printf("node:%T\n", node)
+			// time.Sleep(5 * time.Second)
+			err = dr.saveNodeData(node)
+			if err != nil {
+				return err
+			}
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Save the leaf node file data in a buffer in case it is only
+			// partially read now and future `CtxReadFull` calls reclaim the
+			// rest (as each node is visited only once during `Iterate`).
+			written, err := dr.writeNodeDataBuffer(w)
+			n += written
+			if err != nil {
+				return err
+			}
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+			return nil
+		})
+		merkledag.UnPinBuffer[dr.rootNode.Cid()] = dagCid
+		// merkledag.PrintUnPinBuffer(dr.rootNode.Cid())
+		elap := time.Since(st)
+		fmt.Println("writeTo elap:", elap)
+		//////////////////////////////////////////////////////////////////////////////////////////////////
+
+		// fmt.Printf("merkledag.UnpinnedCidMap:%+v\n", merkledag.UnpinnedCidMap)
+
+		if err == ipld.EndOfDag {
+			return n, nil
+		}
+
+	}
+	elap := time.Since(st)
+	fmt.Println("writeTo elap:", elap)
 	return n, err
+
 }
 
 // Close the reader (cancelling fetch node operations requested with
@@ -384,7 +517,7 @@ func (dr *dagReader) Seek(offset int64, whence int) (int64, error) {
 			node := ipld.ExtractIPLDNode(visitedNode)
 
 			if len(node.Links()) > 0 {
-				// Internal node, should be a `mdag.ProtoNode` containing a
+				// Internal node, should be a `merkledag.ProtoNode` containing a
 				// `unixfs.FSNode` (see the `balanced` package for more details).
 				fsNode, err := unixfs.ExtractFSNode(node)
 				if err != nil {

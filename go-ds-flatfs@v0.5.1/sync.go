@@ -29,14 +29,15 @@ func syncDir(dir string) error {
 	syncSemaphore <- struct{}{}
 	defer func() { <-syncSemaphore }()
 
-	if err := dirF.Sync(); err != nil {
-		return err
-	}
+	// if err := dirF.Sync(); err != nil {
+	// 	return err
+	// }
 	return nil
 }
 
 func syncFile(file *os.File) error {
 	syncSemaphore <- struct{}{}
 	defer func() { <-syncSemaphore }()
-	return file.Sync()
+	// return file.Sync()
+	return nil
 }

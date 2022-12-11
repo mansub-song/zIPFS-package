@@ -211,7 +211,7 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 	optFlag := true
 
 	if fileAbsPath != "" && optFlag {
-
+		st := time.Now()
 		depthNodeCount := make([]int, 1)
 
 		fileInfo, err := os.Stat(fileAbsPath)
@@ -269,8 +269,13 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 		newFileLeaf = make([]cid.Cid, depthNodeCount[0])
 
 		var numTh int
+		var size int
+		if NumThread == 1 {
+			size = depthNodeCount[0]
+		} else {
 
-		size := depthNodeCount[0] / (NumThread - 1)
+			size = depthNodeCount[0] / (NumThread - 1)
+		}
 		if size == 0 || size == 1 {
 			numTh = depthNodeCount[0]
 		} else {
@@ -342,9 +347,9 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 		}
 		wg.Wait()
 
-		fmt.Printf("leafNode:%#v\n", leafNode)
-		fmt.Printf("leafFileSize:%#v\n", leafFileSize)
-		fmt.Printf("newFileLeaf:%#v\n", newFileLeaf)
+		// fmt.Printf("leafNode:%#v\n", leafNode)
+		// fmt.Printf("leafFileSize:%#v\n", leafFileSize)
+		// fmt.Printf("newFileLeaf:%#v\n", newFileLeaf)
 
 		// st_3 := time.Now()
 		// fileData, err := ioutil.ReadFile(fileAbsPath)
@@ -461,6 +466,8 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 
 		// merkledag.PrintPinBuffer(root.Cid())
 		fmt.Println("root CID:", root.Cid())
+		elap := time.Since(st)
+		fmt.Println("layout elap:", elap)
 		return root, db.Add(root)
 		// panic("good game")
 	} else {

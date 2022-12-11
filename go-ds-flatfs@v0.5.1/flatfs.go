@@ -1052,10 +1052,10 @@ func (fs *Datastore) writeDiskUsageFile(du int64, doSync bool) {
 	}
 
 	if doSync {
-		if err := tmp.Sync(); err != nil {
-			log.Warnw("cound not sync", "error", err, "file", DiskUsageFile)
-			return
-		}
+		// if err := tmp.Sync(); err != nil {
+		// 	log.Warnw("cound not sync", "error", err, "file", DiskUsageFile)
+		// 	return
+		// }
 	}
 
 	if err := tmp.Close(); err != nil {

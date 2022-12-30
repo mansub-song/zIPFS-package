@@ -55,6 +55,8 @@ type Blockstore interface {
 	// HashOnRead specifies if every read block should be
 	// rehashed to make sure it matches its CID.
 	HashOnRead(enabled bool)
+
+	AllKeysMansub(ctx context.Context) ([]cid.Cid, error)
 }
 
 // Viewer can be implemented by blockstores that offer zero-copy access to
@@ -303,4 +305,47 @@ func (bs *gclocker) PinLock(_ context.Context) Unlocker {
 
 func (bs *gclocker) GCRequested(_ context.Context) bool {
 	return atomic.LoadInt32(&bs.gcreq) > 0
+}
+
+func (bs *blockstore) AllKeysMansub(ctx context.Context) ([]cid.Cid, error) {
+	// var tmpMutex = &sync.Mutex{}
+	allKeys := make([]cid.Cid, 0)
+	// KeysOnly, because that would be _a lot_ of data.
+	q := dsq.Query{KeysOnly: true}
+	res, err := bs.datastore.Query(ctx, q)
+	if err != nil {
+		return allKeys, err
+	}
+
+	defer func() {
+		res.Close() // ensure exit (signals early exit, too)
+		// close(output)
+	}()
+
+	for {
+		e, ok := res.NextSync()
+		if !ok {
+			// fmt.Println("allKeys: %v\n",allKeys)
+			return allKeys, nil
+		}
+		if e.Error != nil {
+			log.Errorf("blockstore.AllKeysChan got err: %s", e.Error)
+			return nil, e.Error
+		}
+
+		// need to convert to key.Key using key.KeyFromDsKey.
+		bk, err := dshelp.BinaryFromDsKey(ds.RawKey(e.Key))
+		// fmt.Printf("dshelp.BinaryFromDsKey: %v, ds.RawKey: %v, e.Key: %v\n",bk, ds.RawKey(e.Key), e.Key) //dshelp.BinaryFromDsKey: [18 32 170 223 60 219 151 187 196 152 103 228 68 123 62 5 245 130 110 32 165 93 51 180 70 14 148 85 51 34 170 32 81 165], ds.RawKey: /CIQKVXZ43OL3XREYM7SEI6Z6AX2YE3RAUVOTHNCGB2KFKMZCVIQFDJI, e.Key: /CIQKVXZ43OL3XREYM7SEI6Z6AX2YE3RAUVOTHNCGB2KFKMZCVIQFDJI
+		if err != nil {
+			log.Warningf("error parsing key from binary: %s", err)
+			continue
+		}
+		// z := cid.NewCidV0(bk)
+		// fmt.Printf("allkeys:%+v\n", z)
+		k := cid.NewCidV1(cid.Raw, bk)
+		allKeys = append(allKeys, k)
+
+	}
+
+	return allKeys, nil
 }

@@ -477,6 +477,7 @@ func (fs *Datastore) doWriteOp(oper *op) (done bool, err error) {
 func (fs *Datastore) doPut(key datastore.Key, val []byte) error {
 
 	dir, path := fs.encode(key)
+	// fmt.Println("dir:", dir, "path:", path) // dir: /home/mssong/.ipfs/blocks/7P path: /home/mssong/.ipfs/blocks/7P/CIQKGXY65BAIM2G5C64GRJOK2SGPDAXNG5VGHVHW7KFQ3PFFF5YH7PI.data
 	if err := fs.makeDir(dir); err != nil {
 		return err
 	}

@@ -62,26 +62,35 @@ import (
 	ft "github.com/ipfs/go-unixfs"
 	h "github.com/ipfs/go-unixfs/importer/helpers"
 
+	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
 	"github.com/ipfs/go-datastore"
+	dshelp "github.com/ipfs/go-ipfs-ds-help"
 	ipld "github.com/ipfs/go-ipld-format"
+	merkledag "github.com/ipfs/go-merkledag"
 	ihelper "github.com/ipfs/go-unixfs/importer/helpers"
 )
 
 var fillNodeRec_Count = 0
 var ChunkSize int64 = 1024 * 256
 var ChildLinkCount = 174
-var NumThread = 32
 
-func encode(key datastore.Key) (dir, file string) {
+// var NumThread = 32
+
+// var IPFS_Path = "/home/mssong/.ipfs"
+
+// var IPFS_Path = "/mnt/nvme0n1/.ipfs"
+
+func encode(key datastore.Key) (dirPath, fileName string) {
+	// dir: /home/mssong/.ipfs/blocks/7P path: /home/mssong/.ipfs/blocks/7P/CIQKGXY65BAIM2G5C64GRJOK2SGPDAXNG5VGHVHW7KFQ3PFFF5YH7PI.data
 	extension := ".data"
 	noslash := key.String()[1:]
 	// datastorePath := "/home/mssong/.ipfs/blocks"
-	datastorePath := "/Users/songman/.ipfs/blocks"
+	datastorePath := merkledag.IPFS_Path + "/blocks"
 
-	dir = filepath.Join(datastorePath, noslash[len(noslash)-3:len(noslash)-1])
-	file = filepath.Join(dir, noslash+extension)
-	return dir, file
+	dirPath = filepath.Join(datastorePath, noslash[len(noslash)-3:len(noslash)-1])
+	fileName = noslash + extension
+	return dirPath, fileName
 }
 
 func makeDAG(db *ihelper.DagBuilderHelper, level int, depthNodeCount []int, childNode []ipld.Node, childFileSize []uint64, lastChildIdx int, newFileNonLeaf *[]cid.Cid) (ipld.Node, uint64, error) {
@@ -240,6 +249,8 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 		}
 
 		// fmt.Println("levelNodeCount:", len(depthNodeCount), levelNodeCount)
+
+		// depthNodeCount = NPD node
 		for {
 			childLinks := int64(ChildLinkCount)
 			if int(fileSize%childLinks) != 0 {
@@ -256,13 +267,6 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 			depthNodeCount = append(depthNodeCount, levelNodeCount)
 		}
 
-		// for i := 0; i < len(depthNodeCount); i++ {
-		// 	fmt.Printf("depthNodeCout[%d]:%d\n", i, depthNodeCount[i])
-		// }
-		// fmt.Println("depthNodeCount len:", len(depthNodeCount))
-
-		// wg := sync.WaitGroup{}
-
 		leafNode := make([]ipld.Node, depthNodeCount[0])
 		leafFileSize := make([]uint64, depthNodeCount[0])
 
@@ -270,11 +274,11 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 
 		var numTh int
 		var size int
-		if NumThread == 1 {
+		if merkledag.NumThread == 1 {
 			size = depthNodeCount[0]
 		} else {
 
-			size = depthNodeCount[0] / (NumThread - 1)
+			size = depthNodeCount[0] / (merkledag.NumThread - 1)
 		}
 		if size == 0 || size == 1 {
 			numTh = depthNodeCount[0]
@@ -286,6 +290,9 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 		}
 		fmt.Println("numTh:", numTh, "depthNodeCount[0]:", depthNodeCount[0], "size:", size)
 		var wg sync.WaitGroup
+
+		tempPath := merkledag.IPFS_Path + "/blocks/temp"
+		os.Mkdir(tempPath, 0755)
 
 		for i := 0; i < numTh; i++ {
 			wg.Add(1)
@@ -336,7 +343,26 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 							log.Fatal("mssong: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(ft.TFile, fileCidIdx)")
 						}
 						newFileLeaf[idx+j] = leafNode[idx+j].Cid()
-						err = db.Add(leafNode[idx+j])
+						// err = db.Add(leafNode[idx+j])
+						/////////////////////////////
+						dsKey := dshelp.MultihashToDsKey(newFileLeaf[idx+j].Hash())
+						dirPath, fileName := encode(dsKey)
+						os.Mkdir(dirPath, 0755)
+						filePath := dirPath + "/" + fileName
+						f, err := os.Create(filePath)
+						if err != nil {
+							panic(err)
+						}
+						// tempFile := tempPath + fileName
+						// // tmpFileName := "temp-" + fileName
+						// f, err := os.Create(tempFile)
+						// if err != nil {
+						// 	panic(err)
+						// }
+						var blk blocks.Block
+						blk = leafNode[idx+j]
+						f.Write(blk.RawData())
+						/////////////////////////////
 						if err != nil {
 							panic(err)
 						}
@@ -347,113 +373,14 @@ func Layout(db *h.DagBuilderHelper, fileAbsPath string) (ipld.Node, error) {
 		}
 		wg.Wait()
 
-		// fmt.Printf("leafNode:%#v\n", leafNode)
-		// fmt.Printf("leafFileSize:%#v\n", leafFileSize)
-		// fmt.Printf("newFileLeaf:%#v\n", newFileLeaf)
-
-		// st_3 := time.Now()
-		// fileData, err := ioutil.ReadFile(fileAbsPath)
-		// elap_3 := time.Since(st_3)
-		// fileDataSize := len(fileData)
-		// if err != nil {
-		// 	log.Fatal("os open fail!_2 -", ":", err)
-		// }
-		// fmt.Println("file read time:", elap_3)
-
-		// for i := 0; i < depthNodeCount[0]; i++ { //depthNodeCount[0] == leaf node level
-		// 	wg.Add(1)
-		// 	go func(i int) {
-		// 		defer wg.Done()
-		// 		start := int64(i) * ChunkSize
-		// 		end := int64(i+1) * ChunkSize
-		// 		if end >= int64(fileDataSize) {
-		// 			end = int64(fileDataSize)
-		// 		}
-		// 		leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(fileData[start:end], ft.TFile)
-		// 		if err != nil {
-		// 			log.Fatal("mssong: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode(ft.TFile, fileCidIdx)")
-		// 		}
-
-		// 		newFileLeaf[i] = leafNode[i].Cid()
-
-		// 		//////////////// case 1. 직접 file create하기!
-		// 		dsKey := dshelp.MultihashToDsKey(newFileLeaf[i].Hash())
-		// 		// fmt.Println("dsKey:", dsKey.String())
-		// 		dir, filePath := encode(dsKey)
-		// 		mutex := sync.Mutex{}
-		// 		mutex2 := sync.Mutex{}
-
-		// 		mutex.Lock()
-		// 		if _, err := os.Stat(dir); os.IsNotExist(err) {
-		// 			os.Mkdir(dir, os.ModePerm)
-		// 		}
-		// 		mutex.Unlock()
-
-		// 		mutex2.Lock()
-		// 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-		// 			f, err := os.Create(filePath)
-		// 			if err != nil {
-		// 				panic(err)
-		// 			}
-		// 			f.Write(leafNode[i].RawData())
-		// 		}
-		// 		mutex2.Unlock()
-
-		// 		////////////////case 2. db.Add로 datastore에 데이터 저장하기
-
-		// 		// err = db.Add(leafNode[i])
-		// 		// if err != nil {
-		// 		// 	log.Fatal("mssong: err = db.Add(leafNode[i])")
-		// 		// }
-
-		// 	}(i)
-		// }
-		//////////////////////////////////////////////////////////////////////// 각 file open해서 256K만큼 read하기
-		/*
-			for i := 0; i < depthNodeCount[0]; i++ { //depthNodeCount[0] == leaf node level
-				wg.Add(1)
-				go func(i int) {
-					defer wg.Done()
-					f, err := os.Open(fileAbsPath)
-					if err != nil {
-						log.Fatal("os open fail!_2 -", ":", err)
-					}
-
-					offset := int64(i) * ChunkSize
-					f.Seek(offset, 0)
-
-					full := make([]byte, ChunkSize)
-					n, err := io.ReadFull(f, full)
-					if err == io.ErrUnexpectedEOF { //남은 짜바리 바이트 넣기
-						small := make([]byte, n)
-						copy(small, full)
-						leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(small, ft.TFile, fileCidIdx)
-
-					} else {
-						leafNode[i], leafFileSize[i], err = db.NewLeafDataNode_mansub(full, ft.TFile, fileCidIdx)
-					}
-
-					newFileLeaf[i] = leafNode[i].Cid()
-
-					if err != nil {
-						log.Fatal("mssong: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode(ft.TFile, fileCidIdx)")
-					}
-					err = db.Add(leafNode[i])
-					if err != nil {
-						log.Fatal("mssong: err = db.Add(leafNode[i])")
-					}
-				}(i)
-				// leafNode[i], leafFileSize[i], err = db.NewLeafDataNode(ft.TFile, fileCidIdx)
-				// if err != nil {
-				// 	log.Fatal("Fatal: leafNode[i], leafFileSize[i], err = db.NewLeafDataNode(ft.TFile, fileCidIdx)")
-				// }
-			}
-		*/
-		// wg.Wait()
-
 		newFileNonLeaf := make([]cid.Cid, 0)
+		st_1 := time.Now()
 		root, _, err = makeDAG(db, 1, depthNodeCount, leafNode, leafFileSize, depthNodeCount[0]-1, &newFileNonLeaf)
-
+		fmt.Println("makeDag elap:", time.Since(st_1))
+		dagCid := merkledag.NewTierCid()
+		dagCid.NonLeaf = append(dagCid.NonLeaf, newFileNonLeaf...)
+		dagCid.Leaf = append(dagCid.Leaf, newFileLeaf...)
+		merkledag.PinBuffer[root.Cid()] = dagCid
 		// fmt.Println("newFileNonLeaf:", len(newFileNonLeaf), "leaf:", len(newFileLeaf))
 		// dagTeirCid := new(merkledag.TierCid)
 		// dagCid := merkledag.NewTierCid()

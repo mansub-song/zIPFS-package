@@ -372,6 +372,8 @@ func (p *pinner) Unpin(ctx context.Context, c cid.Cid, recursive bool) error {
 			return ipfspinner.ErrNotPinned
 		}
 	}
+	delete(merkledag.PinBuffer, c)
+	// fmt.Println("merkledag.PinBuffer")
 
 	removed, err := p.removePinsForCid(ctx, c, ipfspinner.Any)
 	if err != nil {

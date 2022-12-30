@@ -14,6 +14,11 @@ var PinBufferMutex *sync.Mutex
 var UnPinBuffer map[cid.Cid]*TierCid
 var UnPinBufferMutex *sync.Mutex
 
+var NumThread = 32
+
+// var IPFS_Path = "/home/mssong/.ipfs"
+var IPFS_Path = "/mnt/nvme0n1/.ipfs"
+
 type TierCid struct {
 	NonLeaf []cid.Cid
 	Leaf    []cid.Cid

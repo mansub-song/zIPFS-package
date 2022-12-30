@@ -10,6 +10,7 @@ package filestore
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	blocks "github.com/ipfs/go-block-format"
 	cid "github.com/ipfs/go-cid"
@@ -109,6 +110,11 @@ func (f *Filestore) AllKeysChan(ctx context.Context) (<-chan cid.Cid, error) {
 		}
 	}()
 	return out, nil
+}
+
+func (f *Filestore) AllKeysMansub(ctx context.Context) ([]cid.Cid, error) {
+	fmt.Println("\n\n\n\nTODO\n\n\n\n\n\n")
+	return nil, nil
 }
 
 // DeleteBlock deletes the block with the given key from the

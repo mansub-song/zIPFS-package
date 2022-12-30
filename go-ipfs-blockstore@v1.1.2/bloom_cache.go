@@ -228,3 +228,6 @@ func (b *bloomcache) PinLock(ctx context.Context) Unlocker {
 func (b *bloomcache) GCRequested(ctx context.Context) bool {
 	return b.blockstore.(GCBlockstore).GCRequested(ctx)
 }
+func (b *bloomcache) AllKeysMansub(ctx context.Context) ([]cid.Cid, error) {
+	return b.blockstore.AllKeysMansub(ctx)
+}

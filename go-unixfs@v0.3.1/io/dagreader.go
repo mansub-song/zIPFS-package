@@ -21,6 +21,12 @@ import (
 	pb "github.com/ipfs/go-unixfs/pb"
 )
 
+var ExtractIPLD_time int
+var SaveNodeData_time int
+var WriteNodeData_time int
+
+// var numTh = 32
+
 // Common errors
 var (
 	ErrIsDir            = errors.New("this dag node is a directory")
@@ -284,7 +290,7 @@ func (dr *dagReader) writeNodeDataBuffer(w io.Writer) (int64, error) {
 func encode(key datastore.Key) (file string) {
 	extension := ".data"
 	noslash := key.String()[1:]
-	datastorePath := "/home/mssong/.ipfs/blocks"
+	datastorePath := merkledag.IPFS_Path + "/blocks"
 
 	dir := filepath.Join(datastorePath, noslash[len(noslash)-3:len(noslash)-1])
 	file = filepath.Join(dir, noslash+extension)
@@ -351,6 +357,76 @@ func createFile(f *os.File, tc *merkledag.TierCid) (size int64, err error) {
 	return fileInfo.Size(), nil
 }
 
+func createFile_2(f *os.File, tc *merkledag.TierCid) (size int64, err error) {
+	wg := sync.WaitGroup{}
+	len_leaf := len(tc.Leaf)
+	rawData := make([][]byte, len_leaf)
+	fmt.Println("len_leaf:", len_leaf)
+	count := len_leaf / merkledag.NumThread
+	if len_leaf%merkledag.NumThread != 0 {
+		count = count + 1
+	}
+
+	var cc = 0
+	var mutex sync.RWMutex
+	for i := 0; i < merkledag.NumThread; i++ {
+		if len_leaf <= i {
+			break
+		}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < count; j++ {
+				interval := (i * count) + j
+				if interval >= len_leaf {
+					break
+				}
+				cc++
+				// fmt.Println("interval, i, j", interval, i, j, cc, count)
+				leafCid := tc.Leaf[interval]
+				dsKey := dshelp.MultihashToDsKey(leafCid.Hash())
+				// fmt.Println("dsKey:", dsKey.String())
+				filePath := encode(dsKey)
+				// fmt.Println("filePath:", filePath)
+				dat, err := ioutil.ReadFile(filePath)
+				if err != nil {
+					panic(err)
+				}
+				node, err := merkledag.DecodeProtobuf(dat)
+				if err != nil {
+					panic(err)
+				}
+
+				rawData[interval], err = UnwrapData(node.Data())
+				if err != nil {
+					panic(err)
+				}
+				mutex.Lock()
+				f.WriteAt(rawData[interval], int64(interval*256*1024))
+				mutex.Unlock()
+			}
+
+		}(i)
+
+	}
+	wg.Wait()
+
+	fmt.Println("len_leaf:", len_leaf)
+	st_1 := time.Now()
+	for i := 0; i < len(rawData); i++ {
+
+		f.Write(rawData[i])
+	}
+	elap_1 := time.Since(st_1)
+	fmt.Println("elap_1:", elap_1)
+
+	fileInfo, err := f.Stat()
+	if err != nil {
+		panic(err)
+	}
+	return fileInfo.Size(), nil
+}
+
 ///////////////////////////////////// wrriten by mssong
 
 // WriteTo writes to the given writer.
@@ -392,7 +468,7 @@ func (dr *dagReader) WriteTo(w io.Writer) (n int64, err error) {
 	if exist_Pin {
 		fmt.Println("exist pin!")
 
-		n, err = createFile(f, tc_Pin)
+		n, err = createFile_2(f, tc_Pin)
 	} else if exist_Unpin {
 		fmt.Println("exist unpin!")
 

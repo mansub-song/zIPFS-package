@@ -402,3 +402,7 @@ func (b *arccache) PinLock(ctx context.Context) Unlocker {
 func (b *arccache) GCRequested(ctx context.Context) bool {
 	return b.blockstore.(GCBlockstore).GCRequested(ctx)
 }
+
+func (b *arccache) AllKeysMansub(ctx context.Context) ([]cid.Cid, error) {
+	return b.blockstore.AllKeysMansub(ctx)
+}

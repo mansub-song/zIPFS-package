@@ -121,3 +121,6 @@ func (b *idstore) Close() error {
 	}
 	return nil
 }
+func (b *idstore) AllKeysMansub(ctx context.Context) ([]cid.Cid, error) {
+	return b.bs.AllKeysMansub(ctx)
+}

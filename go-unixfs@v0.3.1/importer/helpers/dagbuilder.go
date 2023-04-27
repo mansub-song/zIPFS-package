@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 
 	dag "github.com/ipfs/go-merkledag"
 
@@ -16,6 +17,13 @@ import (
 	files "github.com/ipfs/go-ipfs-files"
 	pi "github.com/ipfs/go-ipfs-posinfo"
 	ipld "github.com/ipfs/go-ipld-format"
+
+	// blocks "github.com/ipfs/go-block-format"
+	// dshelp "github.com/ipfs/go-ipfs-ds-help"
+
+	"github.com/ipfs/go-datastore"
+	dshelp "github.com/ipfs/go-ipfs-ds-help"
+	merkledag "github.com/ipfs/go-merkledag"
 )
 
 var ErrMissingFsRef = errors.New("missing file path or URL, can't create filestore reference")
@@ -160,6 +168,7 @@ func (db *DagBuilderHelper) NewLeafNode(data []byte, fsNodeType pb.Data_DataType
 
 	// Encapsulate the data in UnixFS node (instead of a raw node).
 	fsNodeOverDag := db.NewFSNodeOverDag(fsNodeType)
+
 	fsNodeOverDag.SetFileData(data)
 	node, err := fsNodeOverDag.Commit()
 	if err != nil {
@@ -170,6 +179,98 @@ func (db *DagBuilderHelper) NewLeafNode(data []byte, fsNodeType pb.Data_DataType
 	// `FSNodeOverDag`.
 
 	return node, nil
+}
+
+func (db *DagBuilderHelper) NewLeafNode_mansub(data []byte, fsNodeType pb.Data_DataType) (ipld.Node, error) {
+	if len(data) > BlockSizeLimit {
+		return nil, ErrSizeLimitExceeded
+	}
+
+	if db.rawLeaves {
+		// Encapsulate the data in a raw node.
+		if db.cidBuilder == nil {
+			return dag.NewRawNode(data), nil
+		}
+		rawnode, err := dag.NewRawNodeWPrefix(data, db.cidBuilder)
+		if err != nil {
+			return nil, err
+		}
+		return rawnode, nil
+	}
+
+	// Encapsulate the data in UnixFS node (instead of a raw node).
+	fsNodeOverDag := db.NewFSNodeOverDag(fsNodeType)
+
+	// for t := 0; t < 20; t++ {
+	// 	fmt.Println(t, " SetFileData start")
+	// 	time.Sleep(1 * time.Second)
+	// }
+
+	fsNodeOverDag.SetFileData(data)
+	// for t := 0; t < 15; t++ {
+	// 	fmt.Println(t, " Commit start")
+	// 	time.Sleep(1 * time.Second)
+	// }
+	//
+
+	fsNodeOverDag.dag.SetData(data) // fsNodeOverDag.Commit() 대신 사용
+
+	//
+	// node, err := fsNodeOverDag.Commit() //여기가 메모리 엄청 먹는다
+	// if err != nil {
+	// 	return nil, err
+	// }
+	//
+
+	// TODO: Encapsulate this sequence of calls into a function that
+	// just returns the final `ipld.Node` avoiding going through
+	// `FSNodeOverDag`.
+	// for t := 0; t < 10; t++ {
+	// 	fmt.Println(t, " return start")
+	// 	time.Sleep(1 * time.Second)
+	// }
+
+	// return node, nil
+	return fsNodeOverDag.dag, nil
+}
+
+func (db *DagBuilderHelper) NewLeafNode_mansub_2(data []byte, fsNodeType pb.Data_DataType) (cid.Cid, error) {
+	// if len(data) > BlockSizeLimit {
+	// 	return nil, ErrSizeLimitExceeded
+	// }
+
+	// Encapsulate the data in UnixFS node (instead of a raw node).
+	fsNodeOverDag := db.NewFSNodeOverDag(fsNodeType)
+
+	fsNodeOverDag.SetFileData(data)
+
+	fsNodeOverDag.dag.SetData(data) // fsNodeOverDag.Commit() 대신 사용
+
+	nodeCID := fsNodeOverDag.dag.Cid()
+	// if err != nil {
+	// 	return nodeCID, 0, err
+	// }
+
+	dsKey := dshelp.MultihashToDsKey(nodeCID.Hash())
+	dirPath, fileName := encode(dsKey)
+
+	os.Mkdir(dirPath, 0755)
+	filePath := dirPath + "/" + fileName
+	f, err := os.Create(filePath)
+	if err != nil {
+		panic(err)
+	}
+
+	tempPath := merkledag.IPFS_Path + "/blocks/temp"
+	tempFile := tempPath + fileName
+	f, err = os.Create(tempFile)
+	if err != nil {
+		panic(err)
+	}
+
+	f.Write(fsNodeOverDag.dag.RawData())
+
+	return nodeCID, nil
 }
 
 // FillNodeLayer will add datanodes as children to the give node until
@@ -228,7 +329,7 @@ func (db *DagBuilderHelper) NewLeafDataNode_mansub(fileData []byte, fsNodeType p
 	dataSize = uint64(len(fileData))
 
 	// Create a new leaf node containing the file chunk data.
-	node, err = db.NewLeafNode(fileData, fsNodeType)
+	node, err = db.NewLeafNode_mansub(fileData, fsNodeType)
 
 	if err != nil {
 		return nil, 0, err
@@ -238,6 +339,39 @@ func (db *DagBuilderHelper) NewLeafDataNode_mansub(fileData []byte, fsNodeType p
 	node = db.ProcessFileStore(node, dataSize)
 
 	return node, dataSize, nil
+}
+
+func (db *DagBuilderHelper) NewLeafDataNode_mansub_2(fileData []byte, fsNodeType pb.Data_DataType) (nodeCID cid.Cid, dataSize uint64, err error) {
+	// debug.PrintStack()
+
+	dataSize = uint64(len(fileData))
+
+	// Create a new leaf node containing the file chunk data.
+	nodeCID, err = db.NewLeafNode_mansub_2(fileData, fsNodeType)
+
+	if err != nil {
+		panic(err)
+	}
+	// Convert this leaf to a `FilestoreNode` if needed.
+	// node = db.ProcessFileStore(node, dataSize)
+
+	return nodeCID, dataSize, nil
+}
+
+func encode(key datastore.Key) (dirPath, fileName string) {
+	// dir: /home/mssong/.ipfs/blocks/7P path: /home/mssong/.ipfs/blocks/7P/CIQKGXY65BAIM2G5C64GRJOK2SGPDAXNG5VGHVHW7KFQ3PFFF5YH7PI.data
+	extension := ".data"
+	noslash := key.String()[1:]
+	// datastorePath := "/home/mssong/.ipfs/blocks"
+	datastorePath := merkledag.IPFS_Path + "/blocks"
+
+	dirPath = filepath.Join(datastorePath, noslash[len(noslash)-3:len(noslash)-1])
+	fileName = noslash + extension
+	return dirPath, fileName
+}
+
+func leafNodeWrite(nodeCID cid.Cid) {
+
 }
 
 // ProcessFileStore generates, if Filestore is being used, the
@@ -277,6 +411,11 @@ func (db *DagBuilderHelper) ProcessFileStore(node ipld.Node, dataSize uint64) ip
 // Add inserts the given node in the DAGService.
 func (db *DagBuilderHelper) Add(node ipld.Node) error {
 	return db.dserv.Add(context.TODO(), node)
+}
+
+func (db *DagBuilderHelper) Add_mansub(node ipld.Node) error {
+	// fmt.Println("DagBuilderHelper Add_mansub")
+	return db.dserv.Add_mansub(context.TODO(), node)
 }
 
 // Maxlinks returns the configured maximum number for links
@@ -363,7 +502,7 @@ func (n *FSNodeOverDag) AddChild_mansub(child ipld.Node, fileSize uint64, db *Da
 
 	n.file.AddBlockSize(fileSize)
 	if level >= 2 {
-		err = db.Add(child)
+		err = db.Add_mansub(child)
 	}
 
 	return err
@@ -383,6 +522,7 @@ func (n *FSNodeOverDag) RemoveChild(index int, dbh *DagBuilderHelper) {
 // TODO: Make it read-only after committing, allow to commit only once.
 func (n *FSNodeOverDag) Commit() (ipld.Node, error) {
 	fileData, err := n.file.GetBytes()
+	// debug.PrintStack()
 	if err != nil {
 		return nil, err
 	}

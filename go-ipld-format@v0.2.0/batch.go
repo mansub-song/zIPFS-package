@@ -115,6 +115,11 @@ func (t *Batch) Add(ctx context.Context, nd Node) error {
 	return t.AddMany(ctx, []Node{nd})
 }
 
+func (t *Batch) Add_mansub(ctx context.Context, nd Node) error {
+	// fmt.Println("here??_3")
+	return t.AddMany_mansub(ctx, []Node{nd})
+}
+
 // AddMany many calls Add for every given Node, thus batching and
 // commiting them as needed.
 func (t *Batch) AddMany(ctx context.Context, nodes []Node) error {
@@ -136,6 +141,29 @@ func (t *Batch) AddMany(ctx context.Context, nodes []Node) error {
 	if t.size > t.opts.maxSize || len(t.nodes) > t.opts.maxNodes {
 		t.asyncCommit()
 	}
+	return t.err
+}
+
+func (t *Batch) AddMany_mansub(ctx context.Context, nodes []Node) error {
+	// fmt.Println("hihihi")
+	if t.err != nil {
+		return t.err
+	}
+	// Not strictly necessary but allows us to catch errors early.
+	// t.processResults()
+
+	// if t.err != nil {
+	// 	return t.err
+	// }
+
+	// t.nodes = append(t.nodes, nodes...)
+	// for _, nd := range nodes {
+	// 	t.size += len(nd.RawData())
+	// }
+
+	// if t.size > t.opts.maxSize || len(t.nodes) > t.opts.maxNodes {
+	// 	t.asyncCommit()
+	// }
 	return t.err
 }
 
@@ -252,10 +280,17 @@ func (bd *BufferedDAG) Commit() error {
 func (bd *BufferedDAG) Add(ctx context.Context, n Node) error {
 	return bd.b.Add(ctx, n)
 }
+func (bd *BufferedDAG) Add_mansub(ctx context.Context, n Node) error {
+	// fmt.Println("here??_4") //here
+	return bd.b.Add_mansub(ctx, n)
+}
 
 // AddMany adds many nodes using Batch.
 func (bd *BufferedDAG) AddMany(ctx context.Context, nds []Node) error {
 	return bd.b.AddMany(ctx, nds)
+}
+func (bd *BufferedDAG) AddMany_mansub(ctx context.Context, nds []Node) error {
+	return bd.b.AddMany_mansub(ctx, nds)
 }
 
 // Get commits and gets a node from the DAGService.

@@ -2,6 +2,7 @@ package merkledag
 
 import (
 	"context"
+	"fmt"
 
 	cid "github.com/ipfs/go-cid"
 	ipld "github.com/ipfs/go-ipld-format"
@@ -20,10 +21,18 @@ var _ ipld.DAGService = (*ComboService)(nil)
 func (cs *ComboService) Add(ctx context.Context, nd ipld.Node) error {
 	return cs.Write.Add(ctx, nd)
 }
+func (cs *ComboService) Add_mansub(ctx context.Context, nd ipld.Node) error {
+	fmt.Println("here??_7")
+	return cs.Write.Add_mansub(ctx, nd)
+}
 
 // AddMany adds nodes using the Write DAGService.
 func (cs *ComboService) AddMany(ctx context.Context, nds []ipld.Node) error {
 	return cs.Write.AddMany(ctx, nds)
+}
+
+func (cs *ComboService) AddMany_mansub(ctx context.Context, nds []ipld.Node) error {
+	return cs.Write.AddMany_mansub(ctx, nds)
 }
 
 // Get fetches a node using the Read DAGService.

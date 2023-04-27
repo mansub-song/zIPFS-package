@@ -30,12 +30,13 @@ type NodeGetter interface {
 type NodeAdder interface {
 	// Add adds a node to this DAG.
 	Add(context.Context, Node) error
-
+	Add_mansub(context.Context, Node) error
 	// AddMany adds many nodes to this DAG.
 	//
 	// Consider using the Batch NodeAdder (`NewBatch`) if you make
 	// extensive use of this function.
 	AddMany(context.Context, []Node) error
+	AddMany_mansub(context.Context, []Node) error
 }
 
 // NodeGetters can optionally implement this interface to make finding linked

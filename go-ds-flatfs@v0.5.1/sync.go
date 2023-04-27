@@ -29,6 +29,7 @@ func syncDir(dir string) error {
 	syncSemaphore <- struct{}{}
 	defer func() { <-syncSemaphore }()
 
+	//mssong
 	// if err := dirF.Sync(); err != nil {
 	// 	return err
 	// }
@@ -38,6 +39,7 @@ func syncDir(dir string) error {
 func syncFile(file *os.File) error {
 	syncSemaphore <- struct{}{}
 	defer func() { <-syncSemaphore }()
+	//mssong
 	// return file.Sync()
 	return nil
 }

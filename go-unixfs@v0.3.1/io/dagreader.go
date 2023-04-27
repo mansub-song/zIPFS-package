@@ -459,7 +459,8 @@ func (dr *dagReader) WriteTo(w io.Writer) (n int64, err error) {
 	tc_Pin = tc_Pin
 	tc_UnPin = tc_UnPin
 
-	f, err := os.Create("/home/mssong/ipfsGetData")
+	// f, err := os.Create("/home/mssong/ipfsGetData")
+	f, err := os.Create("/root/ipfs_client/data_downloads/" + dr.rootNode.Cid().String())
 	if err != nil {
 		panic(err)
 	}

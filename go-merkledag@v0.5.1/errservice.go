@@ -2,6 +2,7 @@ package merkledag
 
 import (
 	"context"
+	"fmt"
 
 	cid "github.com/ipfs/go-cid"
 	ipld "github.com/ipfs/go-ipld-format"
@@ -19,8 +20,16 @@ func (cs *ErrorService) Add(ctx context.Context, nd ipld.Node) error {
 	return cs.Err
 }
 
+func (cs *ErrorService) Add_mansub(ctx context.Context, nd ipld.Node) error {
+	fmt.Println("here??_5")
+	return cs.Err
+}
+
 // AddMany returns the cs.Err.
 func (cs *ErrorService) AddMany(ctx context.Context, nds []ipld.Node) error {
+	return cs.Err
+}
+func (cs *ErrorService) AddMany_mansub(ctx context.Context, nds []ipld.Node) error {
 	return cs.Err
 }
 

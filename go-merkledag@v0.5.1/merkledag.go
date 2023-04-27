@@ -60,12 +60,30 @@ func (n *dagService) Add(ctx context.Context, nd format.Node) error {
 	return n.Blocks.AddBlock(ctx, nd)
 }
 
+func (n *dagService) Add_mansub(ctx context.Context, nd format.Node) error {
+	fmt.Println("here??_6")
+	if n == nil { // FIXME remove this assertion. protect with constructor invariant
+		return fmt.Errorf("dagService is nil")
+	}
+	// fmt.Println("dagService")
+
+	return n.Blocks.AddBlock_mansub(ctx, nd)
+}
+
 func (n *dagService) AddMany(ctx context.Context, nds []format.Node) error {
 	blks := make([]blocks.Block, len(nds))
 	for i, nd := range nds {
 		blks[i] = nd
 	}
 	return n.Blocks.AddBlocks(ctx, blks)
+}
+
+func (n *dagService) AddMany_mansub(ctx context.Context, nds []format.Node) error {
+	blks := make([]blocks.Block, len(nds))
+	for i, nd := range nds {
+		blks[i] = nd
+	}
+	return n.Blocks.AddBlocks_mansub(ctx, blks)
 }
 
 // Get retrieves a node from the dagService, fetching the block in the BlockService

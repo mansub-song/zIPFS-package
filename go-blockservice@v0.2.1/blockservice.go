@@ -52,10 +52,12 @@ type BlockService interface {
 
 	// AddBlock puts a given block to the underlying datastore
 	AddBlock(ctx context.Context, o blocks.Block) error
+	AddBlock_mansub(ctx context.Context, o blocks.Block) error
 
 	// AddBlocks adds a slice of blocks at the same time using batching
 	// capabilities of the underlying datastore whenever possible.
 	AddBlocks(ctx context.Context, bs []blocks.Block) error
+	AddBlocks_mansub(ctx context.Context, bs []blocks.Block) error
 
 	// DeleteBlock deletes the given block from the blockservice.
 	DeleteBlock(ctx context.Context, o cid.Cid) error
@@ -158,7 +160,80 @@ func (s *blockService) AddBlock(ctx context.Context, o blocks.Block) error {
 	return nil
 }
 
+func (s *blockService) AddBlock_mansub(ctx context.Context, o blocks.Block) error {
+	c := o.Cid()
+
+	// hash security
+	err := verifcid.ValidateCid(c)
+	if err != nil {
+		return err
+	}
+	if s.checkFirst {
+		if has, err := s.blockstore.Has(ctx, c); has || err != nil {
+			return err
+		}
+	}
+
+	// if err := s.blockstore.Put(ctx, o); err != nil {
+	// 	return err
+	// }
+
+	log.Debugf("BlockService.BlockAdded %s", c)
+
+	if s.exchange != nil {
+		if err := s.exchange.HasBlock(ctx, o); err != nil {
+			log.Errorf("HasBlock: %s", err.Error())
+		}
+	}
+
+	return nil
+}
+
 func (s *blockService) AddBlocks(ctx context.Context, bs []blocks.Block) error {
+	// hash security
+	for _, b := range bs {
+		err := verifcid.ValidateCid(b.Cid())
+		if err != nil {
+			return err
+		}
+	}
+	var toput []blocks.Block
+	if s.checkFirst {
+		toput = make([]blocks.Block, 0, len(bs))
+		for _, b := range bs {
+			has, err := s.blockstore.Has(ctx, b.Cid())
+			if err != nil {
+				return err
+			}
+			if !has {
+				toput = append(toput, b)
+			}
+		}
+	} else {
+		toput = bs
+	}
+
+	if len(toput) == 0 {
+		return nil
+	}
+
+	err := s.blockstore.PutMany(ctx, toput)
+	if err != nil {
+		return err
+	}
+
+	if s.exchange != nil {
+		for _, o := range toput {
+			log.Debugf("BlockService.BlockAdded %s", o.Cid())
+			if err := s.exchange.HasBlock(ctx, o); err != nil {
+				log.Errorf("HasBlock: %s", err.Error())
+			}
+		}
+	}
+	return nil
+}
+
+func (s *blockService) AddBlocks_mansub(ctx context.Context, bs []blocks.Block) error {
 	// hash security
 	for _, b := range bs {
 		err := verifcid.ValidateCid(b.Cid())

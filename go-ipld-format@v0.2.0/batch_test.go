@@ -48,8 +48,23 @@ func (d *testDag) Add(ctx context.Context, node Node) error {
 	d.nodes[node.Cid().KeyString()] = node
 	return nil
 }
+func (d *testDag) Add_mansub(ctx context.Context, node Node) error {
+	// fmt.Println("here??_2")
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.nodes[node.Cid().KeyString()] = node
+	return nil
+}
 
 func (d *testDag) AddMany(ctx context.Context, nodes []Node) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, n := range nodes {
+		d.nodes[n.Cid().KeyString()] = n
+	}
+	return nil
+}
+func (d *testDag) AddMany_mansub(ctx context.Context, nodes []Node) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for _, n := range nodes {
